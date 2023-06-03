@@ -1,5 +1,6 @@
 import os
 import sys
+import copy
 
 import torch 
 import torch.nn as nn 
@@ -55,7 +56,7 @@ def demo_basic(rank, world_size, dataset, image, validation_dataloader, batch_si
     optimizer = optim.AdamW(ddp_model.parameters(), lr=1e-1, weight_decay=0.1)
     scheduler = StepLR(optimizer, step_size = 10, gamma=0.9)
 
-    num_epoch = 500
+    num_epoch = 5
 
     for epoch in range(num_epoch + 1): 
 
@@ -63,7 +64,7 @@ def demo_basic(rank, world_size, dataset, image, validation_dataloader, batch_si
         
         train_data_loader.sampler.set_epoch(epoch)
         
-        dist.barrier()  
+        #dist.barrier()  
         
         for data in train_data_loader: 
             
@@ -88,7 +89,7 @@ def demo_basic(rank, world_size, dataset, image, validation_dataloader, batch_si
         scheduler.step()
         
 
-        if epoch % 10 == 0 and rank == 0: 
+        if epoch % 1 == 0 and rank == 0: 
 
             with torch.no_grad(): 
 
@@ -107,6 +108,9 @@ def demo_basic(rank, world_size, dataset, image, validation_dataloader, batch_si
                     val_loss += loss.item()/len(validation_dataloader)
             
             print('epoch: %d, loss: %.5f, validation loss: %.5f' % (epoch, train_loss, val_loss))
+            best_model_wts = copy.deepcopy( ddp_model.state_dict() )
+            torch.save( best_model_wts,f"model_{epoch}.pt")
+
 
     cleanup()    
 
