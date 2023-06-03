@@ -199,6 +199,7 @@ class ViViT(nn.Module):
         x = torch.cat((temporal_cls_token, x), dim=1)
         
         x = self.temporal_transformer(x)
+
         
         x = torch.cat((x[:, 0, :], y.float()), dim=-1)
         

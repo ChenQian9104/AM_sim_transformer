@@ -13,7 +13,7 @@ if __name__ == '__main__':
 
 
     # Read these setup from config file 
-    batch_size = 4
+    batch_size = 32
 
     print(torch.cuda.is_available())
     print(torch.cuda.get_device_name(0))
@@ -28,8 +28,8 @@ if __name__ == '__main__':
     print('Image tensor shape: ', image.shape)
     num_layers = image.shape[0]
 
-    image = image.repeat((4, 1, 1, 1, 1))
-    print('Batch Image tensor shape: ', image.shape)
+    #image = image.repeat((batch_size, 1, 1, 1, 1))
+    #print('Batch Image tensor shape: ', image.shape)
 
 
     # Load the simulation data 
@@ -43,22 +43,23 @@ if __name__ == '__main__':
 
     np.random.shuffle(data)
 
-    print(data[:10000, -1].sum())
+    print(data[:100000, -1].sum())
 
 
-    train_dataloader, test_dataloader, validation_dataloader = generateDataLoader(data[:10000, :].astype(np.float32), ratio = [0.7, 0.2, 0.1], batch_size=batch_size)
+    train_dataloader, test_dataloader, validation_dataloader = generateDataLoader(data[:100000, :].astype(np.float32), ratio = [0.8, 0.1, 0.1], batch_size=batch_size)
 
     # Train the model 
 
     device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
 
-    model = ViViT(in_channels = 1, num_frames=num_layers, L=1)
+    model = ViViT(in_channels = 1, num_frames=num_layers, L=1, drop=0.2)
     model.to(device) 
 
-    image = image.to(device)
+    #image = image.to(device)
 
     criterion = nn.MSELoss() 
-    optimizer = optim.Adam(model.parameters(), lr=3e-5)
+    optimizer = optim.AdamW(model.parameters(), lr=3e-4, weight_decay=0.1)
+    scheduler = StepLR(optimizer, step_size = 10, gamma=0.95)
 
     num_epoch = 100
 
@@ -67,11 +68,15 @@ if __name__ == '__main__':
         train_loss = 0 
 
         for data in train_dataloader: 
+            
+            batch_size = data[:, :-1].shape[0]
 
             input = data[:, :-1].to(device)
             label = data[:, -1:].to(device) 
+            
+            image_ = image.repeat((batch_size, 1, 1, 1, 1)).to(device)
 
-            pred = model(image, input) 
+            pred = model(image_, input) 
             loss = criterion(pred, label) 
 
             optimizer.zero_grad() 
@@ -80,19 +85,24 @@ if __name__ == '__main__':
             optimizer.step() 
 
             train_loss += loss.item()/len(train_dataloader)
+            
+        scheduler.step()
 
-        if epoch % 1 == 0: 
+        if epoch % 5 == 0: 
 
             with torch.no_grad(): 
 
                 val_loss = 0 
 
                 for data in validation_dataloader:
-
+                
+                    batch_size = data[:, :-1].shape[0]
+                    
                     input = data[:, :-1].to(device)
                     label = data[:, -1:].to(device) 
-
-                    pred_val = model(image, input) 
+                    
+                    image_ = image.repeat((batch_size, 1, 1, 1, 1)).to(device)
+                    pred_val = model(image_, input) 
                     loss = criterion(pred_val, label)  
                     val_loss += loss.item()/len(validation_dataloader)
             

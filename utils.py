@@ -5,7 +5,7 @@ import torch
 from torch.utils.data import random_split, Dataset, DataLoader
 
 
-def load_pointwise_simulation_data(path='./SimulationData/compressor/'):
+def load_pointwise_simulation_data(path='./SimulationData/Compressor/'):
 
     npy_file_list = os.listdir(path)
     data = None
@@ -67,6 +67,17 @@ def query_position_encoding(data, freq_num=8, query_dim=4):
         v[:, 2*L + 1 : : 2*freq_num] = v_cos
 
     return np.concatenate((v, data[:, -1].reshape(data.shape[0], 1)), axis=1)
+
+def generateDataset(data, ratio = [0.7, 0.2, 0.1], batch_size=4): 
+    n = data.shape[0] 
+
+    n_train = int(n * ratio[0])
+    n_test =  int(n * ratio[1])
+    n_val  = n - n_train - n_test
+
+    train_data, test_data, val_data = random_split(data, [n_train, n_test, n_val])
+    
+    return train_data, test_data, val_data
 
 
 def generateDataLoader(data, ratio = [0.7, 0.2, 0.1], batch_size=4): 
