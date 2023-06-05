@@ -5,7 +5,7 @@ import torch
 from torch.utils.data import random_split, Dataset, DataLoader
 
 
-def load_pointwise_simulation_data(path='./SimulationData/Compressor/'):
+def load_pointwise_simulation_data(path='./SimulationData/compressor/'):
 
     npy_file_list = os.listdir(path)
     data = None
@@ -45,7 +45,7 @@ def normalize_simulation_data(data, img_size=224, img_domain=200, scale_height=4
     data[:, 4] = data[:, 4]/scale_temperature
 
     return data 
-
+    
 def query_position_encoding(data, freq_num=8, query_dim=4): 
 
     """
@@ -67,6 +67,25 @@ def query_position_encoding(data, freq_num=8, query_dim=4):
         v[:, 2*L + 1 : : 2*freq_num] = v_cos
 
     return np.concatenate((v, data[:, -1].reshape(data.shape[0], 1)), axis=1)
+    
+def load_data(path = './SimulationData/'): 
+
+    geometry_file_list = os.listdir(path) 
+    
+    data_list = []
+    
+    
+    for geometry_file in geometry_file_list: 
+        file_path = path + geometry_file + '/'
+        data = load_pointwise_simulation_data(file_path) 
+        data = normalize_simulation_data(data) 
+        data = query_position_encoding(data) 
+        data_list.append(data)
+        
+    return data_list
+        
+        
+    
 
 def generateDataset(data, ratio = [0.7, 0.2, 0.1], batch_size=4): 
     n = data.shape[0] 
@@ -97,6 +116,8 @@ def generateDataLoader(data, ratio = [0.7, 0.2, 0.1], batch_size=4):
     return train_dataloader, test_dataloader, validation_dataloader
 
 def loadGeoImage(file_name='./Geometry/compressor.mat'): 
+
+
     mat = scipy.io.loadmat(file_name) 
     val = np.array(mat['result'], dtype = float)
     image = torch.from_numpy(val).type(torch.float32)
@@ -104,3 +125,61 @@ def loadGeoImage(file_name='./Geometry/compressor.mat'):
     image = torch.permute(image,(2, 0, 1))
     image = torch.unsqueeze(image, 1)
     return image
+    
+    
+def load_data(path_simualtion_data = './SimulationData/', path_geometry_data = './Geometry/'): 
+
+    geometry_file_list = os.listdir(path_simualtion_data) 
+    
+    data_list = []
+    image_list = []
+    
+    key_to_image = {}
+    
+    key = 0 
+    for geometry_file in geometry_file_list: 
+        file_path_npy = path_simualtion_data + geometry_file + '/'
+        data = load_pointwise_simulation_data(file_path_npy) 
+        data = normalize_simulation_data(data) 
+        data = query_position_encoding(data) 
+        
+        
+        keys = np.ones((data.shape[0], 1))
+        data_list.append(np.concatenate((keys, data), axis = 1))
+        
+        
+        
+        file_path_mat = path_geometry_data + geometry_file + '.mat' 
+        
+        image = loadGeoImage(file_path_mat) 
+        image_list.append(image)
+        
+        key_to_image[key] = image
+        
+        key += 1
+        
+        
+        
+        
+    return data_list, image_list, key_to_image
+    
+    
+def generateDataLoaderList( ratio = [0.7, 0.2, 0.1], batch_size=4):
+
+    data_list, image_list, key_to_image = load_data()
+    
+    train_dataloader_list, test_dataloader_list, validation_dataloader_list = [], [], []
+    
+    for data in data_list: 
+        
+    
+        train_dataloader, test_dataloader, validation_dataloader = generateDataLoader(data, ratio = ratio, batch_size=batch_size)
+        
+        train_dataloader_list.append(train_dataloader) 
+        test_dataloader_list.append(test_dataloader) 
+        validation_dataloader_list.append(validation_dataloader)
+        
+    return train_dataloader_list, test_dataloader_list, validation_dataloader_list, image_list, key_to_image
+        
+        
+   
