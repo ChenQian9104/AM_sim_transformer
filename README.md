@@ -6,8 +6,5 @@
 
 ## Usage:
 ```python
-model = ViViT()
-x = torch.randn(4, 16, 3, 224, 224)     # input geometry 
-y = torch.randn(4, 64)
-out = model(x, y)
+python3 multiGPUs.py
 ```
