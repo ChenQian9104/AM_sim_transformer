@@ -9,6 +9,7 @@ import torch.optim as optim
 from torch.optim.lr_scheduler import StepLR
 
 from torch.utils.data import Dataset, DataLoader, TensorDataset
+from torch.utils.data import random_split 
 
 import torch.distributed as dist
 import torch.multiprocessing as mp
@@ -17,8 +18,10 @@ from torch.nn.parallel import DistributedDataParallel as DDP
 from torch.utils.data.distributed import DistributedSampler
 
 
+
 from module import * 
 from utils import *
+from customDataset import AMDataset, collate_fn_padd
 
 def setup(rank, world_size):
     os.environ['MASTER_ADDR'] = 'localhost'
@@ -30,13 +33,15 @@ def setup(rank, world_size):
 def cleanup():
     dist.destroy_process_group()
     
-def demo_basic(rank, world_size, dataset, image, validation_dataloader, batch_size=32):
+def demo_basic(rank, world_size, dataset, validation_dataloader, batch_size=16):
+   
     print(f"Running basic DDP example on rank {rank}.")
     setup(rank, world_size)
     sampler = DistributedSampler(dataset, num_replicas=world_size, rank=rank, shuffle=False, drop_last=False)
     # Prepare dataloader on each GPU
     train_data_loader = DataLoader(dataset, 
-                              batch_size = 32, 
+                              batch_size = batch_size, 
+                              collate_fn = collate_fn_padd,
                               pin_memory=True, 
                               shuffle=False, 
                               sampler=sampler )
@@ -48,17 +53,25 @@ def demo_basic(rank, world_size, dataset, image, validation_dataloader, batch_si
                              
 
     # create model and move it to GPU with id rank
-    num_layers = image.shape[0]
-    model = ViViT(in_channels = 1, num_frames=num_layers, L=1, drop=0.2).to(rank)
-    ddp_model = DDP(model, device_ids=[rank],find_unused_parameters=True)
+    loadCheckPoint = True
+    model = ViViT(in_channels = 1, L=6, drop=0.1).to(rank)
     
+    if loadCheckPoint: 
+        model.load_state_dict({k.replace('module.', '') : v for k, v in torch.load('model_100.pt').items()})
+        print(f"Model load successfully on rank {rank}.")
+    dist.barrier()  
+    ddp_model = DDP(model, device_ids=[rank],find_unused_parameters=True)
+    dist.barrier()  
     criterion = nn.MSELoss() 
-    optimizer = optim.AdamW(ddp_model.parameters(), lr=1e-1, weight_decay=0.1)
+    #optimizer = optim.Adam(ddp_model.parameters(), lr=3e-3, weight_decay=0.1)
+    #optimizer = optim.Adam(ddp_model.parameters(), lr=1e-3, weight_decay=0.01)
+    optimizer = optim.SGD(ddp_model.parameters(), lr=1e-3, momentum=0.1, weight_decay=0.01)
+    #optimizer = optim.SGD(ddp_model.parameters(), lr=1e-5, weight_decay=0.01)
     scheduler = StepLR(optimizer, step_size = 10, gamma=0.9)
 
-    num_epoch = 5
+    num_epoch = 100
 
-    for epoch in range(num_epoch + 1): 
+    for epoch in range(101, 241): 
 
         train_loss = 0 
         
@@ -66,7 +79,7 @@ def demo_basic(rank, world_size, dataset, image, validation_dataloader, batch_si
         
         #dist.barrier()  
         
-        for data in train_data_loader: 
+        for image, data in train_data_loader: 
             
                       
             batch_size = data[:, :-1].shape[0]
@@ -74,9 +87,8 @@ def demo_basic(rank, world_size, dataset, image, validation_dataloader, batch_si
             input = data[:, :-1].to(rank)
             label = data[:, -1:].to(rank) 
             
-            image_ = image.repeat((batch_size, 1, 1, 1, 1)).to(rank)
 
-            pred = ddp_model(image_, input) 
+            pred = ddp_model(image, input) 
             loss = criterion(pred, label) 
 
             optimizer.zero_grad() 
@@ -89,29 +101,35 @@ def demo_basic(rank, world_size, dataset, image, validation_dataloader, batch_si
         scheduler.step()
         
 
-        if epoch % 1 == 0 and rank == 0: 
+        if epoch % 1 == 0 and rank == 1: 
 
             with torch.no_grad(): 
 
                 val_loss = 0 
 
-                for data in validation_dataloader:
+                for image, data in validation_dataloader:
                 
                     batch_size = data[:, :-1].shape[0]
                     
                     input = data[:, :-1].to(rank)
                     label = data[:, -1:].to(rank) 
                     
-                    image_ = image.repeat((batch_size, 1, 1, 1, 1)).to(rank)
-                    pred_val = ddp_model(image_, input) 
+                    
+                    pred_val = ddp_model(image, input) 
                     loss = criterion(pred_val, label)  
                     val_loss += loss.item()/len(validation_dataloader)
             
             print('epoch: %d, loss: %.5f, validation loss: %.5f' % (epoch, train_loss, val_loss))
-            best_model_wts = copy.deepcopy( ddp_model.state_dict() )
-            torch.save( best_model_wts,f"model_{epoch}.pt")
+            
+            if epoch > 0 and epoch % 10 == 0: 
 
+                best_model_wts = copy.deepcopy( ddp_model.state_dict() )
+                torch.save( best_model_wts,f"model_{epoch}.pt")
 
+    dist.barrier()  
+    if rank == 1:
+      best_model_wts = copy.deepcopy( ddp_model.state_dict() )
+      torch.save( best_model_wts,f"model_final.pt")
     cleanup()    
 
 
@@ -120,7 +138,7 @@ if __name__ == '__main__':
 
 
     # Read these setup from config file 
-    batch_size = 64
+    batch_size = 16
 
     print(torch.cuda.is_available())
     print(torch.cuda.get_device_name(0))
@@ -131,39 +149,29 @@ if __name__ == '__main__':
 
     print('Available memory:', round(torch.cuda.get_device_properties(0).total_memory/1024**3, 1), 'GB')
 
-    image = loadGeoImage()
-    print('Image tensor shape: ', image.shape)
-    num_layers = image.shape[0]
 
-    #image = image.repeat((batch_size, 1, 1, 1, 1))
-    #print('Batch Image tensor shape: ', image.shape)
-
-
+ 
     # Load the simulation data 
-    data = load_pointwise_simulation_data()
     
-    data = normalize_simulation_data(data)
-
-    data = query_position_encoding(data)
+    dataset = AMDataset()
     
-    print('The size of simulation data is: ', data.shape)
-
-    np.random.shuffle(data)
-
-    print(data[:100000, -1].sum())
     
-    train_dataset, test_dataset, validation_dataset = generateDataset(data[:100000, :].astype(np.float32), ratio = [0.8, 0.1, 0.1], batch_size=batch_size)
+    num = len(dataset) 
+    print("the size of AM Dataset:", num)
+    train_num = int(num * 0.9)
+    validation_num = num - train_num
     
-    validation_dataloader=DataLoader(validation_dataset, batch_size=batch_size, shuffle=True)
+    train_dataset, validation_dataset = random_split(dataset, [train_num, validation_num]) 
     
-    dataset = train_dataset 
+    validation_dataloader = DataLoader(validation_dataset, batch_size = batch_size, collate_fn = collate_fn_padd) 
+    
 
-
+    
     # Train the model 
     
     world_size = torch.cuda.device_count()
     mp.spawn(demo_basic,
-             args=(world_size,dataset, image, validation_dataloader, batch_size),
+             args=(world_size,train_dataset,validation_dataloader, batch_size),
              nprocs=world_size,
              join=True)
 

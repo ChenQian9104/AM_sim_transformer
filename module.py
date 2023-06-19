@@ -139,7 +139,7 @@ class Transformer(nn.Module):
 
 class ViViT(nn.Module): 
     
-    def __init__(self, image_size=224, patch_size=16, in_channels=3, num_frames=16,
+    def __init__(self, image_size=224, patch_size=16, in_channels=3, num_frames=300,
                  embed_dim=192, query_dim=64, n_heads=12, expansion_factor=4, L=4, drop=0.1):
         
         super().__init__()
@@ -188,7 +188,7 @@ class ViViT(nn.Module):
         
         x = torch.cat((space_cls_token, x), dim=2)     # 4 x 16 x 197 x 192 
         
-        x += self.pos_embedding
+        x += self.pos_embedding[:, :N, :, :] 
         
         x = self.space_transformer(x)    # 4 x 16 x 197 x 192 
         
