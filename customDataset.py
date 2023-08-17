@@ -26,13 +26,14 @@ class AMDataset():
         self.simulation_data = self.data_loading_processing()
         self.geometry_images = self.load_geometry_image()
     
-    def load_geometry_image(self):
+    def load_geometry_image(self, mean = 0.0221, std = 0.1471):
         
         images = []
         for file in self.geometry_file_list:
             
             mat = scipy.io.loadmat(self.path_geometry + file) 
             val = np.array(mat['result'], dtype = float)
+            val = (val - mean) / std
             image = torch.from_numpy(val).type(torch.float32)
 
             image = torch.permute(image,(2, 0, 1))
@@ -43,7 +44,7 @@ class AMDataset():
         return images
         
     
-    def load_simulation_data(self, num_points=100000, shuffle=True):
+    def load_simulation_data(self, num_points=100, shuffle=True):
         
         """
         Args: 

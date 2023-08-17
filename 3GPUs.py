@@ -34,6 +34,9 @@ def cleanup():
     dist.destroy_process_group()
     
 def demo_basic(rank, world_size, dataset, validation_dataloader, batch_size=16):
+
+    if (rank == 1):
+        return
    
     print(f"Running basic DDP example on rank {rank}.")
     setup(rank, world_size)
@@ -127,7 +130,7 @@ def demo_basic(rank, world_size, dataset, validation_dataloader, batch_size=16):
                 torch.save( best_model_wts,f"model_{epoch}.pt")
 
     dist.barrier()  
-    if rank == 1:
+    if rank == 0:
       best_model_wts = copy.deepcopy( ddp_model.state_dict() )
       torch.save( best_model_wts,f"model_final.pt")
     cleanup()    
